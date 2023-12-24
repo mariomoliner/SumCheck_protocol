@@ -1,5 +1,5 @@
 [package]
-name = "SumCheck_Protocol"
+name = "sum_check_protocol"
 version = "0.1.0"
 authors = ["Mario <mario.moliner@gmail.com>"]
 edition = "2021"

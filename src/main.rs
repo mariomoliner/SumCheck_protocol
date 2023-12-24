@@ -1,10 +1,11 @@
 use std::usize;
-use ark_ff::Field;
 use ark_poly::{
     polynomial::multivariate::{SparsePolynomial, SparseTerm, Term}, univariate::SparsePolynomial as uniSparsePolynomial, MVPolynomial, Polynomial, 
 };
 use ark_bls12_381::{Fq as BaseField,FQ_ONE,FQ_ZERO};
 use ark_std::{UniformRand, test_rng, Zero, rand::rngs::StdRng};
+
+
 
 //generates boolean hypercube over the BaseField
 fn generate_vectors(n: usize, current: &mut Vec<BaseField>) -> Vec<Vec<BaseField>> {
@@ -34,9 +35,9 @@ fn evaluate_poly_hypercube(poly: &SparsePolynomial<BaseField,SparseTerm>) -> Bas
 // return the polynomial degree in the variable i
 fn get_poly_degree_i(poly: &SparsePolynomial<BaseField,SparseTerm>, i : usize) -> usize{
     let mut max = 0;
-    for (scalar, terms) in poly.terms(){
-        for (pos, e) in terms.iter().enumerate() {
-            if(e.0 == i-1 && e.1 > max){
+    for (_scalar, terms) in poly.terms(){
+        for (_pos, e) in terms.iter().enumerate() {
+            if e.0 == i-1 && e.1 > max {
                 max = e.1;
             }
         }
@@ -73,7 +74,7 @@ fn evaluate_poly_j(poly : &SparsePolynomial<BaseField,SparseTerm>, j: usize, vec
 fn get_poly_j(poly : &SparsePolynomial<BaseField,SparseTerm>, r:  Vec<BaseField>, j : usize) -> uniSparsePolynomial<ark_ff::Fp384<ark_bls12_381::FqParameters>> {
     let mut current_vector = Vec::new();
 
-    let mut boolean_hypercube = generate_vectors(poly.num_vars()-r.len()-1, &mut current_vector);
+    let boolean_hypercube = generate_vectors(poly.num_vars()-r.len()-1, &mut current_vector);
     //println!("{:}",boolean_hypercube[1][0]);
 
     let mut final_sum: uniSparsePolynomial<ark_ff::Fp384<ark_bls12_381::FqParameters>> = uniSparsePolynomial::zero();
@@ -95,7 +96,6 @@ fn get_rand_scalar(rng : &mut StdRng) -> BaseField{
     return random_scalar;
 }
 
-
 //runs the verifier for the polynomial and the boolean hypercube provided
 fn verify(poly: &SparsePolynomial<BaseField, SparseTerm>, c1: BaseField) -> bool{
     let rng = &mut test_rng();
@@ -107,13 +107,13 @@ fn verify(poly: &SparsePolynomial<BaseField, SparseTerm>, c1: BaseField) -> bool
     gj = get_poly_j(&poly, r.clone(), 1);
     assert_eq!(c1,gj.evaluate(&FQ_ONE) + gj.evaluate(&FQ_ZERO), "step 1 with g1 not verified!");
     assert!(get_poly_degree_i(poly, 1) <= poly.degree(), "step 1 with g1 not verified!");
-    rj = BaseField::from(2);
+    rj = get_rand_scalar(rng);
     r.push(rj);
 
     
 
     for j in 2..poly.num_vars(){
-        let cj = gj.evaluate(&rj);
+        cj = gj.evaluate(&rj);
         gj = get_poly_j(&poly, r.clone(), j);
         assert_eq!(cj,gj.evaluate(&FQ_ONE) + gj.evaluate(&FQ_ZERO), "step {} failed to verify!",j);
         assert!(get_poly_degree_i(poly, j) <= poly.degree(), "step {} failed to verify!",j);
@@ -137,9 +137,6 @@ fn verify(poly: &SparsePolynomial<BaseField, SparseTerm>, c1: BaseField) -> bool
     return true;
     
 }
-
-
-
 
 // Some example polynomials runned over the verifier.
 fn verify_example(){
