@@ -158,10 +158,31 @@ fn verify_example(){
         true =>  println!("Verified the hypercube sum is correct!"),
         false => println!("The hypercube failed to be verified!")
     }
+}
 
+// Another example with more variables
+fn verify_example_2(){
+    // g(x1,x2,x3,x4,x5,x6,x7,x8) = x1^3*x3 + x2*x3*x4^2*x5^3 + x6*x7 + x8+x5^2 + 4
+    let polynomial= SparsePolynomial::from_coefficients_vec(
+        8,
+        vec![
+            (BaseField::from(6), SparseTerm::new(vec![(0, 3),(2,1)])),
+            (BaseField::from(1), SparseTerm::new(vec![(1, 1), (2, 1),(3,2),(4,3)])),
+            (BaseField::from(1), SparseTerm::new(vec![(5, 1), (6, 1)])),
+            (BaseField::from(1), SparseTerm::new(vec![(7, 1), (4, 2)])),
+            (BaseField::from(4), SparseTerm::new(vec![])),
+        ],
+    );
+
+    let c1 = evaluate_poly_hypercube(&polynomial);
+    match verify(&polynomial, c1){
+        true =>  println!("Verified the hypercube sum is correct!"),
+        false => println!("The hypercube failed to be verified!")
+    }
 }
 
 
 fn main() {
     verify_example();
+    //verify_example_2();
 }
