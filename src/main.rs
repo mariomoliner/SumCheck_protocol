@@ -1,9 +1,65 @@
-use std::usize;
+use std::{usize};
+use ark_ff::Field;
 use ark_poly::{
     polynomial::multivariate::{SparsePolynomial, SparseTerm, Term}, univariate::SparsePolynomial as uniSparsePolynomial, MVPolynomial, Polynomial, 
 };
 use ark_bls12_381::{Fq as BaseField,FQ_ONE,FQ_ZERO};
 use ark_std::{UniformRand, test_rng, Zero, rand::rngs::StdRng};
+
+use sha2::{Sha256, Digest};
+use std::fmt;
+
+#[derive(Debug)]
+struct MultivariatePolynomial(SparsePolynomial<BaseField, SparseTerm>);
+struct UnivariatePolynomial(uniSparsePolynomial<BaseField>);
+
+struct NonInteractiveProof {
+    s1: BaseField,
+    gj: Vec<UnivariatePolynomial>
+}
+
+
+impl fmt::Display for MultivariatePolynomial {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+
+        let mut poly_string: String = String::new();
+
+        for term in self.0.terms(){
+            let s = term.0.to_string();
+            let vars = term.1.iter().map(|&(var,exp)| format!("(X_{})^{}", var, exp)).collect::<Vec<String>>().join("*");
+            
+            if(!poly_string.is_empty()){
+                poly_string.push_str(" + ");
+            }
+
+            poly_string.push_str(&s);
+            poly_string.push_str("*");
+            poly_string.push_str(&vars);
+        }
+        write!(f, "{}", poly_string)
+    }
+}
+
+
+impl fmt::Display for UnivariatePolynomial {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+
+        let mut poly_string: String = String::new();
+
+        for (exp, coeff) in self.0.to_vec(){
+            if(!poly_string.is_empty()){
+                poly_string.push_str(" + ");
+            }
+            poly_string.push_str(&coeff.to_string());
+            poly_string.push_str("*X^");
+            poly_string.push_str(&exp.to_string());
+        }  
+
+        write!(f, "{}", poly_string) 
+    
+    }
+}
+
 
 
 
@@ -51,6 +107,7 @@ fn evaluate_poly_j(poly : &SparsePolynomial<BaseField,SparseTerm>, j: usize, vec
 
     //the variable to not be evaluate is set to one to get the rest of coefficients
     vector[j-1] = FQ_ONE;
+    
 
     for (scalar_coeff, term) in poly.terms(){
         let evaluation = term.evaluate(&vector);
@@ -90,13 +147,57 @@ fn get_poly_j(poly : &SparsePolynomial<BaseField,SparseTerm>, r:  Vec<BaseField>
     return final_sum;
 }
 
+// gets a random Basefield scalar
 fn get_rand_scalar(rng : &mut StdRng) -> BaseField{
     let random_scalar = BaseField::rand(rng);
 
     return random_scalar;
 }
 
-//runs the verifier for the polynomial and the boolean hypercube provided
+// return the Basefield analog from a hash result
+fn hash_to_basefield(hash: &[u8]) -> BaseField {
+    let prueba = BaseField::from_random_bytes(&hash);
+
+    prueba.unwrap()
+}
+
+// from a polynomial and the sum over the boolean hypercube return an instance of NonInteractiveProof
+fn get_non_interactive_proof(poly : &MultivariatePolynomial, c1: BaseField) -> NonInteractiveProof{
+    let l = poly.0.num_vars;
+    let mut r : Vec<BaseField> = vec![];
+    let mut gj;
+    let mut rj : BaseField;
+
+    let mut proof = NonInteractiveProof {
+        s1 : c1,
+        gj: Vec::with_capacity(l)
+    };
+
+    let mut hasher = Sha256::new();
+    gj = get_poly_j(&poly.0, r.clone(), 1);
+    proof.gj.push(UnivariatePolynomial((gj.clone())));
+
+    hasher.update(UnivariatePolynomial(gj).to_string());
+    rj = hash_to_basefield(&hasher.finalize());
+    r.push(rj);
+
+    for j in 2..=l{
+        let mut hasher = Sha256::new();
+
+        gj = get_poly_j(&poly.0, r.clone(), j);
+        proof.gj.push(UnivariatePolynomial((gj)));
+
+        for polynomial in &proof.gj{
+            hasher.update(polynomial.to_string());
+        }
+        rj = hash_to_basefield(&hasher.finalize());
+        r.push(rj);
+    }
+
+    proof
+}
+
+// runs the verifier for the polynomial and the basefield hypercube solution provided
 fn verify(poly: &SparsePolynomial<BaseField, SparseTerm>, c1: BaseField) -> bool{
     let rng = &mut test_rng();
     let mut r : Vec<BaseField> = vec![];
@@ -106,17 +207,16 @@ fn verify(poly: &SparsePolynomial<BaseField, SparseTerm>, c1: BaseField) -> bool
 
     gj = get_poly_j(&poly, r.clone(), 1);
     assert_eq!(c1,gj.evaluate(&FQ_ONE) + gj.evaluate(&FQ_ZERO), "step 1 with g1 not verified!");
-    assert!(get_poly_degree_i(poly, 1) <= poly.degree(), "step 1 with g1 not verified!");
+    assert!(gj.degree() <= get_poly_degree_i(poly, 1), "step 1 with g1 not verified!");
     rj = get_rand_scalar(rng);
     r.push(rj);
-
     
 
     for j in 2..poly.num_vars(){
         cj = gj.evaluate(&rj);
         gj = get_poly_j(&poly, r.clone(), j);
         assert_eq!(cj,gj.evaluate(&FQ_ONE) + gj.evaluate(&FQ_ZERO), "step {} failed to verify!",j);
-        assert!(get_poly_degree_i(poly, j) <= poly.degree(), "step {} failed to verify!",j);
+        assert!(gj.degree() <= get_poly_degree_i(poly, j), "step {} failed to verify!",j);
 
         rj = get_rand_scalar(rng);
         r.push(rj);
@@ -126,7 +226,7 @@ fn verify(poly: &SparsePolynomial<BaseField, SparseTerm>, c1: BaseField) -> bool
     gj = get_poly_j(&poly, r.clone(), poly.num_vars());
 
     assert_eq!(cj,gj.evaluate(&FQ_ONE) + gj.evaluate(&FQ_ZERO), "step {} failed to verify!", poly.num_vars());
-    assert!(get_poly_degree_i(poly, poly.num_vars()) <= poly.degree(), "step {} failed to verify!", poly.num_vars());
+    assert!(gj.degree() <= get_poly_degree_i(poly, poly.num_vars()) , "step {} failed to verify!", poly.num_vars());
 
 
     rj = get_rand_scalar(rng);
@@ -136,6 +236,39 @@ fn verify(poly: &SparsePolynomial<BaseField, SparseTerm>, c1: BaseField) -> bool
 
     return true;
     
+}
+
+// runs the verifier in non interactive mode
+fn verify_non_interactive(poly: MultivariatePolynomial, c1: BaseField) -> bool{
+    let num_vars = poly.0.num_vars();
+    let proof = get_non_interactive_proof(&poly, c1);
+    let mut r : BaseField = BaseField::from(0);
+    let mut rs : Vec<BaseField> = Vec::new();
+
+    assert!(proof.gj[0].0.degree() <= get_poly_degree_i(&poly.0, 1), "step {} failed to verify!", 1);
+    assert_eq!(c1,proof.gj[0].0.evaluate(&FQ_ONE) + proof.gj[0].0.evaluate(&FQ_ZERO), "step {} with g1 not verified!", 1);
+
+    for j in 0..=num_vars-1{
+        let mut hasher = Sha256::new();
+
+        for i in 0..=j{
+            hasher.update(proof.gj[i].to_string().as_bytes());
+        }
+        r = hash_to_basefield(&hasher.finalize());
+        rs.push(r);
+
+        if(j != num_vars-1){
+            assert!(proof.gj[j].0.degree() <= get_poly_degree_i(&poly.0, j+1), "step {} failed to verify!", j);
+            assert_eq!(proof.gj[j].0.evaluate(&r),proof.gj[j+1].0.evaluate(&FQ_ONE) + proof.gj[j+1].0.evaluate(&FQ_ZERO), "step {} with g1 not verified!", j);
+        }
+    }
+
+    let g_evaluated_over_rs = poly.0.evaluate(&rs);
+    assert!(proof.gj[num_vars-1].0.degree() <= get_poly_degree_i(&poly.0, num_vars), "last step failed to verify!");
+    assert_eq!(proof.gj[num_vars-1].0.evaluate(&r), g_evaluated_over_rs, "last step with g not verified!");
+
+    true
+
 }
 
 // Some example polynomials runned over the verifier.
@@ -178,8 +311,29 @@ fn verify_example_2(){
     }
 }
 
+//example of non interactive proof
+fn verify_example_non_interactive(){
+    let polynomial= MultivariatePolynomial(SparsePolynomial::from_coefficients_vec(
+        3,
+        vec![
+            (BaseField::from(2), SparseTerm::new(vec![(0, 3)])),
+            (BaseField::from(1), SparseTerm::new(vec![(0, 1), (2, 1)])),
+            (BaseField::from(1), SparseTerm::new(vec![(1, 1), (2, 1)])),
+        ],
+    ));
+
+    let c1 = evaluate_poly_hypercube(&polynomial.0);
+
+    match verify_non_interactive(polynomial, c1){
+        true =>  println!("Verified the hypercube sum is correct!"),
+        false => println!("The hypercube failed to be verified!")
+    }
+}
 
 fn main() {
-    verify_example();
+    //verify_example();
     //verify_example_2();
+
+    verify_example_non_interactive();
+
 }
