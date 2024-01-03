@@ -61,8 +61,6 @@ impl fmt::Display for UnivariatePolynomial {
 }
 
 
-
-
 //generates boolean hypercube over the BaseField
 fn generate_vectors(n: usize, current: &mut Vec<BaseField>) -> Vec<Vec<BaseField>> {
     if n == 0 {
